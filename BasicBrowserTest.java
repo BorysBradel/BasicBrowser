@@ -58,7 +58,7 @@ class BasicBrowserTest {
                 String url = "C:\\Users\\Name\\Downloads\\slashdot2.htm";
                 browser.urlField.setText(url);
                 browser.urlUpdate(url);
-                var worker = tab1.future;
+                var worker = tab1.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -68,7 +68,7 @@ class BasicBrowserTest {
                 assertEquals(0, browser.iCurrentTab);
                 assertEquals("", browser.urlField.getText());
                 browser.openLastClosedTab();
-                worker = browser.tabs.get(1).future;
+                worker = browser.tabs.get(1).worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -103,7 +103,7 @@ class BasicBrowserTest {
                         new MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
                                 0, 50, 50, 1, false));
                 tab.hyperlinkUpdate(event);
-                var worker = tab.future;
+                var worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -121,7 +121,7 @@ class BasicBrowserTest {
                         new MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
                                 KeyEvent.CTRL_DOWN_MASK, 50, 50, 1, false));
                 tab.hyperlinkUpdate(event);
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -184,7 +184,7 @@ class BasicBrowserTest {
                         new MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
                                 0, 50, 50, 1, false));
                 tab.hyperlinkUpdate(event);
-                var worker = tab.future;
+                var worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -199,7 +199,7 @@ class BasicBrowserTest {
                         new MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
                                 0, 50, 50, 1, false));
                 tab.hyperlinkUpdate(event);
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -212,7 +212,7 @@ class BasicBrowserTest {
                         new MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
                                 0, 50, 50, 1, false));
                 tab.hyperlinkUpdate(event);
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -220,28 +220,28 @@ class BasicBrowserTest {
                 assertEquals(url3, browser.urlField.getText());
                 assertEquals(2, tab.iHistory);
                 tab.goBack();
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
                 assertEquals(url2, browser.urlField.getText());
                 assertEquals(1, tab.iHistory);
                 tab.goForward();
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
                 assertEquals(url3, browser.urlField.getText());
                 assertEquals(2, tab.iHistory);
                 tab.goBack();
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
                 assertEquals(url2, browser.urlField.getText());
                 assertEquals(1, tab.iHistory);
                 tab.goBack();
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -252,7 +252,7 @@ class BasicBrowserTest {
                         new MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(),
                                 0, 50, 50, 1, false));
                 tab.hyperlinkUpdate(event);
-                worker = tab.future;
+                worker = tab.worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -383,7 +383,7 @@ class BasicBrowserTest {
                 // Open bookmark
                 System.out.println("Will open a bookmark");
                 bookmarkBox.setSelectedItem(url1); // will trigger openBookmarkEvent(url1)
-                var worker = browser.tabs.get(0).future;
+                var worker = browser.tabs.get(0).worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -396,11 +396,11 @@ class BasicBrowserTest {
                 System.out.println("Will open all bookmarks");
                 bookmarkBox.setSelectedIndex(bookmarkBox.getItemCount() - 1); // will trigger openBookmarkEvent(openAll)
                 assertEquals(BasicBrowser.openAllStr, bookmarkBox.getSelectedItem());
-                worker = browser.tabs.get(1).future;
+                worker = browser.tabs.get(1).worker;
                 if (worker != null) {
                     worker.run();
                 }
-                worker = browser.tabs.get(2).future;
+                worker = browser.tabs.get(2).worker;
                 if (worker != null) {
                     worker.run();
                 }
@@ -434,7 +434,7 @@ class BasicBrowserTest {
                 tab.urlUpdate("http://localhost:8000/a", 0);
                 String url = "http://localhost:8001/a";
                 tab.urlUpdate(url, 0);
-                assertEquals(BasicBrowser.futureExistsErrorStr.formatted(url, 0), browser.statusField.getText());
+                assertEquals(BasicBrowser.workerExistsErrorStr.formatted(url, 0), browser.statusField.getText());
             } catch (MalformedURLException | BackingStoreException e) {
                 e.printStackTrace();
             }

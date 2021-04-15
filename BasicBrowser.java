@@ -48,7 +48,7 @@ public class BasicBrowser extends JPanel {
     static final String memoryStr = "memory (MB) used %d, total %d, free %d, max %d";
     static final String urlTookStr = "Url |%s| took %s seconds to load.";
     static final String exceptionStr = "Exception |%s| for url |%s|.";
-    static final String futureExistsErrorStr = "Cannot update url |%s| at index %d because previous update not done.";
+    static final String workerExistsErrorStr = "Cannot update url |%s| at index %d because previous update not done.";
     static final String[] addRemoveStrings = {"Add/Remove A", "Add/Remove B", "Add/Remove C"};
     static final String[] bookmarkKeys = {"bookmarksA", "bookmarksB", "bookmarksC"};
     static final int urlColumns = 80;
@@ -439,8 +439,7 @@ public class BasicBrowser extends JPanel {
         JEditorPane editorPane;
         JScrollPane scrollPane;
         Consumer<URL> addTabWithUrl;
-        // RunnableFutureFactory<String[]> futureFactory;
-        SwingWorker<String[], Void> future;
+        SwingWorker<String[], Void> worker;
 
         HtmlTab(JTextField uf, JTextField sf, JTabbedPane tp, Consumer<URL> addTabWithUrlLambda, int historyCount) {
             history = new LinkedList<>();
@@ -452,8 +451,7 @@ public class BasicBrowser extends JPanel {
             statusField = sf;
             tabsPane = tp;
             addTabWithUrl = addTabWithUrlLambda;
-            //futureFactory = factory;
-            future = null;
+            worker = null;
             kit = new HTMLEditorKit();
             kit.setAutoFormSubmission(false);
             editorPane = new JEditorPane("text/html", "");
@@ -479,10 +477,10 @@ public class BasicBrowser extends JPanel {
         }
 
         void tryStoppingUpdater() {
-            if (future != null) {
+            if (worker != null) {
                 log("tryStoppingUpdater");
-                future.cancel(true);
-                future = null;
+                worker.cancel(true);
+                worker = null;
             }
         }
 
@@ -529,19 +527,19 @@ public class BasicBrowser extends JPanel {
             if (error != null && !error.isEmpty()) {
                 statusField.setText(String.format(exceptionStr, error, url));
             }
-            future = null;
+            worker = null;
         }
 
         void urlUpdate(String url, int index) {
             log("urlUpdate %s %d".formatted(url, index));
-            if (future != null) {
-                String error = futureExistsErrorStr.formatted(url, index);
+            if (worker != null) {
+                String error = workerExistsErrorStr.formatted(url, index);
                 log(error);
                 statusField.setText(error);
                 return;
             }
             setUrl(url);
-            future = new SwingWorker<>() {
+            worker = new SwingWorker<>() {
                 @Override
                 protected String[] doInBackground() {
                     return updaterDoInBackground(url);
@@ -559,7 +557,7 @@ public class BasicBrowser extends JPanel {
                     }
                 }
             };
-            future.execute();
+            worker.execute();
         }
 
         void goBack() {
