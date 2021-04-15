@@ -18,78 +18,10 @@ import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
 
 public class BasicBrowser extends JPanel {
-
-    interface RunnableFutureFactory<T> {
-        boolean createFuture(Supplier<T> doInBackground, Consumer<T> done, Consumer<String> runFinally);
-        boolean runFuture();
-        boolean clearFuture();
-        void tryCancellingFuture();
-    }
-
-    static class SwingWorkerFactory<T, V> implements RunnableFutureFactory<T> {
-        SwingWorker<T, V> worker;
-        SwingWorkerFactory() {
-            worker = null;
-        }
-
-        @Override
-        public boolean runFuture() {
-            if (worker == null) {
-                return false;
-            }
-            worker.execute();
-            return true;
-        }
-
-        @Override
-        public boolean clearFuture() {
-            if (worker == null) {
-                return false;
-            }
-            worker = null;
-            return true;
-        }
-
-        @Override
-        public void tryCancellingFuture() {
-            if (worker != null) {
-                worker.cancel(true);
-                worker = null;
-            }
-        }
-
-        @Override
-        public boolean createFuture(Supplier<T> doInBackground, Consumer<T> done, Consumer<String> runFinally) {
-            if (worker != null) {
-                return false;
-            }
-            worker = new SwingWorker<>() {
-                @Override
-                protected T doInBackground() {
-                    return doInBackground.get();
-                }
-
-                @Override
-                public void done() {
-                    String error = "";
-                    try {
-                        done.accept(get());
-                    } catch (InterruptedException | ExecutionException e) {
-                        error = e.toString();
-                    } finally {
-                        runFinally.accept(error);
-                    }
-                }
-            };
-            return true;
-        }
-    }
-
     static final String titleStr = "Basic Browser";
     static final String navigationBarStr = "Navigation Bar";
     static final String bookmarksBarStr = "Bookmarks Bar";
@@ -116,6 +48,7 @@ public class BasicBrowser extends JPanel {
     static final String memoryStr = "memory (MB) used %d, total %d, free %d, max %d";
     static final String urlTookStr = "Url |%s| took %s seconds to load.";
     static final String exceptionStr = "Exception |%s| for url |%s|.";
+    static final String workerExistsErrorStr = "Cannot update url |%s| at index %d because previous update not done.";
     static final String[] addRemoveStrings = {"Add/Remove A", "Add/Remove B", "Add/Remove C"};
     static final String[] bookmarkKeys = {"bookmarksA", "bookmarksB", "bookmarksC"};
     static final int urlColumns = 80;
@@ -133,11 +66,11 @@ public class BasicBrowser extends JPanel {
     ArrayList<HtmlTab> tabs;
     Deque<HtmlTab> closedTabs;
     Preferences preferences;
-    RunnableFutureFactory<String[]> futureFactory;
     LinkedList<Preferences> bookmarkPreferences;
     String[] quickSearches;
     JButton back, forward, reload, newTab, closeTab, openLastClosedTab, changeSearch;
     JButton[] addRemove;
+    boolean[] addRemoveIsRunning;
     LinkedList<JComboBox<String>> bookmarkBoxes;
     int iCurrentTab;
 
@@ -153,8 +86,7 @@ public class BasicBrowser extends JPanel {
 
     static void startGui() throws MalformedURLException, BackingStoreException {
         JFrame frame = new JFrame(titleStr);
-        frame.add(new BasicBrowser(Preferences.userRoot().node(BasicBrowser.class.getName()),
-                new SwingWorkerFactory<String[], Void>(), defaultMaxHistoryCount));
+        frame.add(new BasicBrowser(Preferences.userRoot().node(BasicBrowser.class.getName()), defaultMaxHistoryCount));
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(new Dimension(defaultWidth, defaultHeight));
         frame.setLocationRelativeTo(null);
@@ -162,11 +94,10 @@ public class BasicBrowser extends JPanel {
     }
 
     static void log(String s) {
-        // System.out.println(s);
+        // System.out.println(Thread.currentThread() + " " + s);
     }
 
-    BasicBrowser(Preferences prefs, RunnableFutureFactory<String[]> factory, int historyCount)
-            throws MalformedURLException, BackingStoreException {
+    BasicBrowser(Preferences prefs, int historyCount) throws MalformedURLException, BackingStoreException {
         super(new BorderLayout());
 
         JPanel top = new JPanel(new GridLayout(0, 1));
@@ -192,12 +123,13 @@ public class BasicBrowser extends JPanel {
         navigationBar.add(urlField);
         bookmarksBar = newToolBar(bookmarksBarStr, top);
         preferences = prefs;
-        futureFactory = factory;
         loadPreferences();
         addRemove = new JButton[addRemoveStrings.length];
+        addRemoveIsRunning = new boolean[addRemoveStrings.length];
         for (int i = 0; i < addRemoveStrings.length; i++) {
             addRemove[i] = newButton(addRemoveStrings[i], KeyEvent.VK_D + i,
                     KeyEvent.CTRL_DOWN_MASK, bookmarksBar, this::addOrRemoveEvent);
+            addRemoveIsRunning[i] = false;
             bookmarksBar.add(bookmarkBoxes.get(i));
         }
 
@@ -286,19 +218,18 @@ public class BasicBrowser extends JPanel {
     void addTab() {
         HtmlTab tab = new HtmlTab(urlField, statusField, tabsPane,
                 (URL url) -> { addTab(); urlField.setText(url.toString()); urlUpdate(url.toString()); },
-                futureFactory, maxHistoryCount);
+                maxHistoryCount);
         addTab(tab);
     }
     void addTab(HtmlTab tab) {
         int index = tabs.size();
-        log("addTab at " + index);
+        log("addTab " + index);
         tabs.add(tab);
         tabsPane.addTab(tab.getTitle(), tab.scrollPane);
         if (index < mnemonicCount) {
             tabsPane.setMnemonicAt(index, KeyEvent.VK_1 + index);
         }
         tabsPane.setSelectedIndex(index);
-        log("Called setSelectedIndex " + index);
     }
 
     void openLastClosedTab() {
@@ -418,7 +349,6 @@ public class BasicBrowser extends JPanel {
     void addOrRemoveEvent(ActionEvent event) {
         String urlString = urlField.getText();
         if (!isUrl(urlString)) {
-            log("not a url: " + urlString);
             return;
         }
         String command = event.getActionCommand();
@@ -427,7 +357,8 @@ public class BasicBrowser extends JPanel {
             if (command.equals(addRemoveStrings[i])) {
                 var box = bookmarkBoxes.get(i);
                 Preferences bookmarkNode = bookmarkPreferences.get(i);
-                log(i + " match index for " + command);
+                log("box " + i);
+                addRemoveIsRunning[i] = true;
                 try {
                     URL url = new URL(urlString);
                     String match = null;
@@ -439,12 +370,12 @@ public class BasicBrowser extends JPanel {
                         }
                     }
                     if (match != null) {
-                        log(urlString + " url results in removing bookmark ");
+                        log("remove " + urlString);
                         box.removeItem(urlString);
                         bookmarkNode.remove(url.toString());
                     } else {
                         String title = tabsPane.getTitleAt(iCurrentTab);
-                        log(urlString + " url results in adding bookmark " + title);
+                        log("add " + urlString);
                         box.removeItemAt(box.getItemCount() - 1); // remove openALlStr and add after to be at end
                         box.addItem(urlString);
                         box.addItem(openAllStr);
@@ -452,6 +383,8 @@ public class BasicBrowser extends JPanel {
                     }
                 } catch (MalformedURLException e) {
                     statusField.setText(exceptionStr.formatted(e.toString(), urlString));
+                } finally {
+                    addRemoveIsRunning[i] = false;
                 }
             }
         }
@@ -464,16 +397,19 @@ public class BasicBrowser extends JPanel {
             JComboBox<String> box = bookmarkBoxes.get(i);
             if (source == box) {
                 String selected = box.getItemAt(box.getSelectedIndex());
-                if (selected == null) {
+                if (addRemoveIsRunning[i] || selected == null) {
+                    log("return");
                     return; // called from addOrRemoveEvent when change by adding/deleting. Don't do anything.
                 }
-                log(i + " index has selected " + selected);
+                log(i + " " + selected);
                 if (selected.equals(openAllStr)) {
                     log("Open all");
                     for (int iEntry = 0; iEntry < (box.getItemCount() - 1); iEntry++) {
                         addTab();
                         int index = tabs.size() - 1;
-                        tabs.get(index).urlUpdate(box.getItemAt(iEntry), index);
+                        String url = box.getItemAt(iEntry);
+                        urlField.setText(url);
+                        tabs.get(index).urlUpdate(url, index);
                     }
                 } else {
                     log("Open one");
@@ -503,10 +439,9 @@ public class BasicBrowser extends JPanel {
         JEditorPane editorPane;
         JScrollPane scrollPane;
         Consumer<URL> addTabWithUrl;
-        RunnableFutureFactory<String[]> futureFactory;
+        SwingWorker<String[], Void> worker;
 
-        HtmlTab(JTextField uf, JTextField sf, JTabbedPane tp, Consumer<URL> addTabWithUrlLambda,
-                RunnableFutureFactory<String[]> factory, int historyCount) {
+        HtmlTab(JTextField uf, JTextField sf, JTabbedPane tp, Consumer<URL> addTabWithUrlLambda, int historyCount) {
             history = new LinkedList<>();
             history.add("");
             maxHistoryCount = historyCount;
@@ -516,7 +451,7 @@ public class BasicBrowser extends JPanel {
             statusField = sf;
             tabsPane = tp;
             addTabWithUrl = addTabWithUrlLambda;
-            futureFactory = factory;
+            worker = null;
             kit = new HTMLEditorKit();
             kit.setAutoFormSubmission(false);
             editorPane = new JEditorPane("text/html", "");
@@ -536,15 +471,21 @@ public class BasicBrowser extends JPanel {
         }
 
         void setUrl(String newUrl) {
+            log("setUrl iH %d newUrl %s old h %s".formatted(iHistory, newUrl, Arrays.toString(history.toArray())));
             history.set(iHistory, newUrl);
-            log("setUrl iH %d h %s".formatted(iHistory, Arrays.toString(history.toArray())));
+            log("done setUrl iH %d new h %s".formatted(iHistory, Arrays.toString(history.toArray())));
         }
 
         void tryStoppingUpdater() {
-            futureFactory.tryCancellingFuture();
+            if (worker != null) {
+                log("tryStoppingUpdater");
+                worker.cancel(true);
+                worker = null;
+            }
         }
 
         static String[] updaterDoInBackground(String url) {
+            log("updaterDoInBackground " + url);
             String[] result = {"", "", ""};
             long t0 = System.nanoTime();
             try {
@@ -567,6 +508,8 @@ public class BasicBrowser extends JPanel {
         }
 
         void updaterDone(String url, int index, String[] text) {
+            log("updaterDone url |%s| index %d text sizes %d %d %d".formatted(
+                    url, index, text[0].length(), text[1].length(), text[2].length()));
             String body = text[1];
             if (body.isEmpty()) {
                 statusField.setText(text[0]);
@@ -574,26 +517,47 @@ public class BasicBrowser extends JPanel {
                 title = text[0];
                 tabsPane.setTitleAt(index, title);
                 editorPane.setText(body);
-                log(title + " done SwingWorker " + body.length());
                 editorPane.setCaretPosition(0);
                 statusField.setText(String.format(urlTookStr, url, text[2]));
             }
         }
 
         void updaterRunFinally(String url, String error) {
-            futureFactory.clearFuture();
+            log("updaterRunFinally url |%s| error |%s|".formatted(url, error));
             if (error != null && !error.isEmpty()) {
                 statusField.setText(String.format(exceptionStr, error, url));
             }
+            worker = null;
         }
 
         void urlUpdate(String url, int index) {
+            log("urlUpdate %s %d".formatted(url, index));
+            if (worker != null) {
+                String error = workerExistsErrorStr.formatted(url, index);
+                log(error);
+                statusField.setText(error);
+                return;
+            }
             setUrl(url);
-            log(url + " urlUpdate " + index);
-            futureFactory.createFuture( () -> updaterDoInBackground(url),
-                    (text) -> updaterDone(url, index, text),
-                    (error) -> updaterRunFinally(url, error));
-            futureFactory.runFuture();
+            worker = new SwingWorker<>() {
+                @Override
+                protected String[] doInBackground() {
+                    return updaterDoInBackground(url);
+                }
+
+                @Override
+                public void done() {
+                    String error = "";
+                    try {
+                        updaterDone(url, index, get());
+                    } catch (InterruptedException | ExecutionException e) {
+                        error = e.toString();
+                    } finally {
+                        updaterRunFinally(url, error);
+                    }
+                }
+            };
+            worker.execute();
         }
 
         void goBack() {
@@ -624,7 +588,7 @@ public class BasicBrowser extends JPanel {
                 String urlString = url.toString();
                 if (event.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
                     boolean controlDown = event.getInputEvent().isControlDown();
-                    log(controlDown + "controlDown, url: " + url);
+                    log("hyperlinkUpdate url %s controlDown %s".formatted(url, controlDown));
                     if (controlDown) {
                         addTabWithUrl.accept(url);
                     } else {
