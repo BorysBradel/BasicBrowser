@@ -279,7 +279,7 @@ class BasicBrowserTest {
                 // Delete
                 browser.urlField.setText("w");
                 browser.changeSearch();
-                assertEquals("http://www.google.com/search?q= a http://a.com/q=",
+                assertEquals("https://en.wikipedia.org/w/index.php?search= a http://a.com/q=",
                         browser.statusField.getText());
                 // Change default
                 browser.urlField.setText("http://b.com/q=");
@@ -348,10 +348,8 @@ class BasicBrowserTest {
             }
         });
     }
-
-
+    
     // Add/Remove on empty url
-
     @Test
     void testBookmarks() throws InvocationTargetException, InterruptedException {
         SwingUtilities.invokeAndWait(() -> {
@@ -435,6 +433,36 @@ class BasicBrowserTest {
                 String url = "http://localhost:8001/a";
                 tab.urlUpdate(url, 0);
                 assertEquals(BasicBrowser.workerExistsErrorStr.formatted(url, 0), browser.statusField.getText());
+            } catch (MalformedURLException | BackingStoreException e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+    @Test
+    void testFillUrlWithBookmark() throws InvocationTargetException, InterruptedException {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                BasicBrowser browser = new BasicBrowser(new MockPreferences(), 2);
+                // No match when there are no bookmarks.
+                assertNull(browser.getTaskToFillUrlWithBookmark("h"));
+                // Add bookmark
+                JButton addRemove = browser.addRemove[0];
+                String addRemoveStr = BasicBrowser.addRemoveStrings[0];
+                String url1 = "http://localhost:8000/abc1";
+                browser.urlField.setText(url1);
+                browser.tabsPane.setTitleAt(0, "abc1");
+                browser.addOrRemoveEvent(new ActionEvent(addRemove, ActionEvent.ACTION_PERFORMED, addRemoveStr));
+                // Should find match
+                BasicBrowser.FillTask task = browser.getTaskToFillUrlWithBookmark("h");
+                assertEquals(url1, task.bookmark);
+                assertEquals(1, task.caretLocation);
+                // Should find match
+                task = browser.getTaskToFillUrlWithBookmark("l");
+                assertEquals(url1, task.bookmark);
+                assertEquals(8, task.caretLocation);
+                // Should not find match
+                assertNull(browser.getTaskToFillUrlWithBookmark("lz"));
             } catch (MalformedURLException | BackingStoreException e) {
                 e.printStackTrace();
             }

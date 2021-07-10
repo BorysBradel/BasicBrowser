@@ -3,8 +3,7 @@ import org.jsoup.safety.Cleaner;
 import org.jsoup.safety.Whitelist;
 
 import javax.swing.*;
-import javax.swing.event.HyperlinkEvent;
-import javax.swing.event.HyperlinkListener;
+import javax.swing.event.*;
 import javax.swing.text.html.FormSubmitEvent;
 import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
@@ -21,7 +20,7 @@ import java.util.function.Consumer;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
 
-public class BasicBrowser extends JPanel {
+public class BasicBrowser extends JPanel implements DocumentListener {
     static final String titleStr = "Basic Browser";
     static final String navigationBarStr = "Navigation Bar";
     static final String bookmarksBarStr = "Bookmarks Bar";
@@ -36,7 +35,7 @@ public class BasicBrowser extends JPanel {
     static final String untitledStr = "Untitled";
     static final String quickSearchKey = "quickSearch";
     static final String defaultQuickSearchStr =
-            "http://www.google.com/search?q= w https://en.wikipedia.org/w/index.php?search=";
+            "https://en.wikipedia.org/w/index.php?search= w https://en.wikipedia.org/w/index.php?search=";
     static final String quickSearchUrlFormatErrorStr =
             " is an incorrect search url. The url needs to be one or two strings separated by space.";
     static final String quickSearchToDeleteNotFoundErrorStr =
@@ -61,6 +60,7 @@ public class BasicBrowser extends JPanel {
     JToolBar navigationBar;
     JToolBar bookmarksBar;
     JTextField urlField;
+    boolean fillingUrlField;
     JTextField statusField;
     JTabbedPane tabsPane;
     ArrayList<HtmlTab> tabs;
@@ -97,7 +97,7 @@ public class BasicBrowser extends JPanel {
         // System.out.println(Thread.currentThread() + " " + s);
     }
 
-    BasicBrowser(Preferences prefs, int historyCount) throws MalformedURLException, BackingStoreException {
+    BasicBrowser(Preferences preferences, int historyCount) throws MalformedURLException, BackingStoreException {
         super(new BorderLayout());
 
         JPanel top = new JPanel(new GridLayout(0, 1));
@@ -115,15 +115,17 @@ public class BasicBrowser extends JPanel {
                 KeyEvent.CTRL_DOWN_MASK | KeyEvent.SHIFT_DOWN_MASK, navigationBar, e -> openLastClosedTab());
         changeSearch = newButton(changeSearchStr, KeyEvent.VK_G, KeyEvent.CTRL_DOWN_MASK, navigationBar,
                 e -> changeSearch());
+        this.preferences = preferences;
+        loadPreferences(); // Initializes bookmarkBoxes, needs to be called before creating urlField.
         urlField = new JTextField(urlColumns);
         urlField.addActionListener(e -> urlUpdate(e.getActionCommand()));
         urlField.setFocusAccelerator('L');
+        urlField.getDocument().addDocumentListener(this);
         KeyStroke urlFocusStroke = KeyStroke.getKeyStroke(KeyEvent.VK_L, KeyEvent.CTRL_DOWN_MASK);
         urlField.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(urlFocusStroke, "requestFocus");
+        fillingUrlField = false;
         navigationBar.add(urlField);
         bookmarksBar = newToolBar(bookmarksBarStr, top);
-        preferences = prefs;
-        loadPreferences();
         addRemove = new JButton[addRemoveStrings.length];
         addRemoveIsRunning = new boolean[addRemoveStrings.length];
         for (int i = 0; i < addRemoveStrings.length; i++) {
@@ -427,6 +429,59 @@ public class BasicBrowser extends JPanel {
         return url.matches("\\S+[.:]\\w+/?\\S*");
     }
 
+    @Override
+    public void changedUpdate(DocumentEvent e) {
+    }
+
+    @Override
+    public void removeUpdate(DocumentEvent e) {
+    }
+
+    @Override
+    public void insertUpdate(DocumentEvent e) {
+        if (fillingUrlField) {
+            fillingUrlField = false;
+        } else {
+            FillTask task = getTaskToFillUrlWithBookmark(urlField.getText());
+            if (task != null) {
+                SwingUtilities.invokeLater(task);
+            }
+        }
+    }
+
+    FillTask getTaskToFillUrlWithBookmark(String text) {
+        for (String prefix : new String[]{"", "http://", "https://"}) {
+            for (var box : bookmarkBoxes) {
+                for (int i = box.getItemCount() - 2; i >= 0; i--) { // skip open all entry
+                    String bookmark = box.getItemAt(i);
+                    String fullUrl = prefix + text;
+                    int fullUrlLength = fullUrl.length();
+                    if (bookmark.startsWith(fullUrl)) {
+                        return new FillTask(bookmark, fullUrlLength);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    class FillTask implements Runnable {
+        String bookmark;
+        int caretLocation;
+        FillTask(String bookmark, int caretLocation) {
+            this.bookmark = bookmark;
+            this.caretLocation = caretLocation;
+        }
+
+        @Override
+        public void run() {
+            fillingUrlField = true;
+            urlField.setText(bookmark);
+            urlField.setCaretPosition(bookmark.length());
+            urlField.moveCaretPosition(caretLocation);
+        }
+    }
+
     static class HtmlTab implements HyperlinkListener {
         LinkedList<String> history;
         int iHistory;
@@ -441,15 +496,16 @@ public class BasicBrowser extends JPanel {
         Consumer<URL> addTabWithUrl;
         SwingWorker<String[], Void> worker;
 
-        HtmlTab(JTextField uf, JTextField sf, JTabbedPane tp, Consumer<URL> addTabWithUrlLambda, int historyCount) {
+        HtmlTab(JTextField urlField, JTextField statusField, JTabbedPane tabsPane,
+                Consumer<URL> addTabWithUrlLambda, int historyCount) {
             history = new LinkedList<>();
             history.add("");
             maxHistoryCount = historyCount;
             title = untitledStr;
             iHistory = 0;
-            urlField = uf;
-            statusField = sf;
-            tabsPane = tp;
+            this.urlField = urlField;
+            this.statusField = statusField;
+            this.tabsPane = tabsPane;
             addTabWithUrl = addTabWithUrlLambda;
             worker = null;
             kit = new HTMLEditorKit();
@@ -495,9 +551,19 @@ public class BasicBrowser extends JPanel {
                 } else {
                     soupDoc = Jsoup.connect(url).get();
                 }
-                Cleaner cleaner = new Cleaner(Whitelist.relaxed());
+		Whitelist whitelist = Whitelist.relaxed();
+		whitelist.removeTags("div"); // div tags may prevent line wrapping.
+                Cleaner cleaner = new Cleaner(whitelist);
                 var cleanDoc = cleaner.clean(soupDoc);
                 result[0] = soupDoc.title();
+		// Avoid non-images that may reload and cause 100% CPU utilization.
+                var images = cleanDoc.getElementsByTag("img");
+                for (var image : images) {
+                    String src = image.attr("src");
+                    if (!(src.contains(".jpg") || src.contains(".png") || src.contains(".gif"))) {
+                        image.attr("src", "");
+                    }
+                }
                 result[1] = cleanDoc.html();
             } catch (IOException e) {
                 result[0] = String.format(exceptionStr, e.toString(), url);
