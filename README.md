@@ -41,12 +41,12 @@ directory, or search terms. The urls either start with http:// or
 https:// or matches the regular expression \S+[.:]\w+/?\S* and will have
 http:// prepended. The local file path is recognized when it starts with C:\
 or D:\. If the text does not match any of these patterns, the program assumes
-that a search should be performed.
+that a search should be performed. The url field will be filled by bookmarks if possible.
 
 The search terms can either have a prefix or not. By default, if the text starts
-with "w " then Wikipedia will be used. The text "w Wikipedia" will be translated
+with "w " or with nothing, then Wikipedia will be used. The text "w Wikipedia" will be translated
 to https://en.wikipedia.org/w/index.php?search=Wikipedia and the text "Google"
-will be translated to http://www.google.com/search?q=Google. By entering the
+will be translated to https://en.wikipedia.org/w/index.php?search=Google. By entering the
 appropriate text into the url text field and pressing the Change Search button
 will change stored search data. If the text matches a url, the non-prefix search
 is changed. If the text is just one of the prefixes, then the corresponding
